@@ -66,14 +66,17 @@ export class ApiError extends Error {
   }
 }
 
-/** 规范化服务器地址：补协议、去末尾斜杠 */
+/** 规范化服务器地址：补协议、去末尾斜杠。
+ * 缺省协议补 https://（服务端主打内置 HTTPS/mTLS，避免会话 Cookie 明文走网）；
+ * 显式输入 http:// 仍放行，便于内网调试。
+ */
 export function normalizeBaseUrl(input: string): string {
   let url = input.trim();
   if (url === '') {
     return '';
   }
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = `http://${url}`;
+    url = `https://${url}`;
   }
   while (url.endsWith('/')) {
     url = url.substring(0, url.length - 1);
@@ -411,6 +414,10 @@ export class SseClient {
     if (this.destroyed) {
       return;
     }
+    // 重置看门狗基线：退避等待期不应被心跳看门狗反复打断——
+    // 否则每次看门狗触发都会 clearTimeout 掉尚未到期的重连定时器再重设全量退避，
+    // 退避 ≥16s（>15s 看门狗周期）后 connect() 永远不会被调用，实时流永久失效。
+    this.lastDataAt = Date.now();
     this.notifyState(false, reason);
     this.closeClient();
     const delay = Math.min(SSE_RETRY_BASE_MS * Math.pow(2, this.attempts), SSE_RETRY_MAX_MS);
